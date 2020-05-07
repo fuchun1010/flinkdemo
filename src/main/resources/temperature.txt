@@ -1,0 +1,7 @@
+temperature_1,1547718198,32.1
+temperature_1,1547718199,35.1
+temperature_6,1547718201,15.4
+temperature_7,1547718202,6.72
+temperature_10,1547718205,38.1
+temperature_1,1547718206,35.1
+temperature_1,1547718299,31.0

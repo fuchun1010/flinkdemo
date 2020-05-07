@@ -1,5 +1,6 @@
 package com.tank;
 
+import com.tank.state.AccumulationStream;
 import org.apache.flink.api.common.functions.*;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
@@ -7,12 +8,14 @@ import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple1;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
@@ -28,12 +31,53 @@ import static java.lang.String.format;
 public class App {
 
   public static void main(final String[] args) throws Exception {
-    richMapping();
+    final AccumulationStream accumulationStream = new AccumulationStream();
+    accumulationStream.processIntegerStream("localhost", 7777);
+  }
+
+  private static void processDifferentTypeData() throws Exception {
+    StreamExecutionEnvironment env = createStreamEnv();
+    final String activityType = "activityTag";
+    final String orderType = "orderTag";
+    final String customerType = "customerTag";
+    OutputTag<Tuple2<String, Integer>> activityTag = new OutputTag(activityType, TypeInformation.of(new TypeHint<Tuple2<String, Integer>>() {
+    }));
+    OutputTag<Tuple2<String, Integer>> orderTag = new OutputTag(orderType, TypeInformation.of(new TypeHint<Tuple2<String, Integer>>() {
+    }));
+    OutputTag<Tuple2<String, Integer>> customerTag = new OutputTag(customerType, TypeInformation.of(new TypeHint<Tuple2<String, Integer>>() {
+    }));
+    SingleOutputStreamOperator<Tuple2<String, Integer>> ds = env.fromElements(
+            Tuple2.of("activityTag", 1),
+            Tuple2.of("order", 2), Tuple2.of("customer", 3))
+            .keyBy(0)
+            .process(new KeyedProcessFunction<Tuple, Tuple2<String, Integer>, Tuple2<String, Integer>>() {
+              @Override
+              public void processElement(Tuple2<String, Integer> input, Context ctx, Collector<Tuple2<String, Integer>> out) throws Exception {
+                String dataType = input.f0;
+                if (activityType.equalsIgnoreCase(dataType)) {
+                  ctx.output(activityTag, input);
+                } else if (orderType.equalsIgnoreCase(dataType)) {
+                  ctx.output(orderTag, input);
+                } else if (customerTag.equals(dataType)) {
+                  ctx.output(customerTag, input);
+                }
+              }
+            })
+            .setParallelism(Runtime.getRuntime().availableProcessors());
+
+    ds.getSideOutput(activityTag).print();
+    ds.getSideOutput(orderTag).print();
+    ds.getSideOutput(customerTag).print();
+
+    env.executeAsync("tuple job").getJobStatus().whenComplete((job, exp) -> {
+      System.out.println("args = " + job.name());
+    });
   }
 
   private static void richMapping() throws Exception {
-    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    StreamExecutionEnvironment env = createStreamEnv();
     env.fromElements(1, 2, 3).map(new RichMapFunction<Integer, Integer>() {
+
       @Override
       public void open(Configuration parameters) throws Exception {
         super.open(parameters);
@@ -44,13 +88,18 @@ public class App {
       public Integer map(Integer value) throws Exception {
         return value + 1;
       }
+
     }).setParallelism(1).print();
 
     env.executeAsync("richMapping");
   }
 
+  private static StreamExecutionEnvironment createStreamEnv() {
+    return StreamExecutionEnvironment.getExecutionEnvironment();
+  }
+
   private static void splitStream() throws Exception {
-    final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    final StreamExecutionEnvironment env = createStreamEnv();
     final OutputTag<Integer> odd = new OutputTag<>("odd", TypeInformation.of(new TypeHint<Integer>() {
     }));
     final OutputTag<Integer> even = new OutputTag<>("even", TypeInformation.of(new TypeHint<Integer>() {
@@ -81,7 +130,7 @@ public class App {
   }
 
   private static void reduceNumber() throws Exception {
-    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    StreamExecutionEnvironment env = createStreamEnv();
     env.setParallelism(1);
     env.fromElements(1, 2, 3, 4)
             .map(new MapFunction<Integer, Tuple2<Integer, Integer>>() {
@@ -122,7 +171,7 @@ public class App {
   }
 
   private static void processBoundStream() throws Exception {
-    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    StreamExecutionEnvironment env = createStreamEnv();
     env.getConfig().disableGenericTypes();
     String filePath = locateTextFilePath();
     env.readTextFile(filePath)
