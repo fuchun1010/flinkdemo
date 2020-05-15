@@ -1,5 +1,8 @@
 package com.tank;
 
+import com.tank.dm.SqlProcessor;
+import com.tank.dm.ds.OmsDataSource;
+import com.tank.dm.pojo.Order;
 import com.tank.state.AccumulationStream;
 import org.apache.flink.api.common.functions.*;
 import org.apache.flink.api.common.state.ValueState;
@@ -11,6 +14,7 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple1;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
@@ -31,8 +35,17 @@ import static java.lang.String.format;
 public class App {
 
   public static void main(final String[] args) throws Exception {
-    final AccumulationStream accumulationStream = new AccumulationStream();
-    accumulationStream.processIntegerStream("localhost", 7777);
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    env.addSource(new OmsDataSource(), "omsDataSource")
+            .uid("omsDataSource")
+            .map(Order::toTuple3)
+            .returns(TypeInformation.of(new TypeHint<Tuple3<Long, Order, Long>>() {}))
+            .uid("orderToTuple3")
+            .print("oms order datasource")
+            .uid("only print");
+//    final AccumulationStream accumulationStream = new AccumulationStream();
+//    accumulationStream.processIntegerStream("localhost", 7777);
+    env.execute("oms job");
   }
 
   private static void processDifferentTypeData() throws Exception {
@@ -81,13 +94,20 @@ public class App {
       @Override
       public void open(Configuration parameters) throws Exception {
         super.open(parameters);
+        ValueStateDescriptor<Integer> valueStateDescriptor = new ValueStateDescriptor<Integer>("richMapping", TypeInformation.of(new TypeHint<Integer>() {
+        }));
+        this.valueState = this.getRuntimeContext().getState(valueStateDescriptor);
         System.out.println("once");
       }
 
+
       @Override
       public Integer map(Integer value) throws Exception {
-        return value + 1;
+        this.valueState.update(value + 1);
+        return this.valueState.value();
       }
+
+      private transient ValueState<Integer> valueState = null;
 
     }).setParallelism(1).print();
 

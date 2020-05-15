@@ -2,7 +2,9 @@ package com.tank.state;
 
 import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.TimeCharacteristic;
+import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
@@ -21,13 +23,13 @@ public class AccumulationStream {
 
     final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
+    env.enableCheckpointing(interval);
+    final CheckpointConfig checkpointConfig = env.getCheckpointConfig();
+    checkpointConfig.setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE);
+    checkpointConfig.setCheckpointTimeout(maxAllowedTimeOutForCheckPoint);
+
     accumulateInt(env, ip, port);
 
-//    env.executeAsync("processIntegerStream job")
-//            .getJobStatus()
-//            .whenComplete((status, err) -> {
-//              System.out.println(String.format("processIntegerStream name:[%s]", status.name()));
-//            });
     env.execute("processIntegerStream job");
   }
 
@@ -43,10 +45,17 @@ public class AccumulationStream {
 
     env.socketTextStream(ip, port)
             .map(new String2StoreScalesMapping())
+            .uid("string2StoreScalesMapping")
             .keyBy(0)
             .process(new AccIntegerProcessor())
-            .print();
+            .uid("accIntegerProcessor")
+            .print()
+            .uid("print");
   }
+
+  private Long interval = 1000L;
+
+  private Long maxAllowedTimeOutForCheckPoint = 6000L;
 
 
 }
